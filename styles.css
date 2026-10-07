@@ -264,3 +264,16 @@ input[type=range] { padding: 0; accent-color: var(--cobalt); }
 .kpi small { font-size: 14px; font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
 .rows.rep .th, .rows.rep .tr { grid-template-columns: minmax(0, 2.2fr) repeat(6, minmax(0, 1fr)); }
 @media print { .rp-filters { display: none !important; } .vis.ch .cbox canvas { max-width: 100%; } }
+
+/* Danh sách trong khối hai cột (Tổng quan): gọn hơn, bỏ cột tiến độ để cột tên việc đủ rộng */
+.two .rows .th, .two .rows .tr { grid-template-columns: minmax(0, 2.4fr) minmax(0, 1.2fr) 104px 128px; gap: 12px; padding-left: 16px; padding-right: 14px; }
+.two .rows .th > :nth-child(5), .two .rows .tr > :nth-child(5) { display: none; }
+.rows .tr > * { min-width: 0; }
+@media (max-width: 860px) {
+  .two .rows .tr { grid-template-columns: 1fr auto; }
+  .two .rows .tr > :nth-child(1) { grid-column: 1 / -1; }
+}
+/* Tổng quan: mỗi việc hai dòng (tên việc / người nhận, hạn, trạng thái) */
+.two .rows .th { display: none; }
+.two .rows .tr { grid-template-columns: minmax(0, 1.5fr) 112px auto; gap: 6px 14px; align-items: center; padding: 12px 16px 12px 18px; }
+.two .rows .tr > :nth-child(1) { grid-column: 1 / -1; }
