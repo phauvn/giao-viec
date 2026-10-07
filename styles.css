@@ -254,3 +254,13 @@ input[type=range] { padding: 0; accent-color: var(--cobalt); }
   .shell { display: block; } .main { padding: 0; max-width: none; } body { background: #fff; font-size: 12px; }
   .rows, .kpis, .vis { break-inside: avoid; } .tr { break-inside: avoid; } .tr:hover { background: none; }
 }
+
+/* ===== Thống kê bằng Chart.js ===== */
+.vis.ch { text-align: left; } .vis.ch figcaption { align-items: flex-start; }
+.vis.ch .cbox { position: relative; margin-top: 12px; }
+.vis.ch > svg { display: none; }
+.rp-filters { align-items: flex-end; gap: 12px; margin: 4px 0 16px; } .rp-filters > div { flex: 1 1 180px; max-width: 260px; } .rp-filters select { width: 100%; }
+.rp-filters label.f { margin-top: 0; }
+.kpi small { font-size: 14px; font-weight: 600; color: var(--ink-2); letter-spacing: 0; }
+.rows.rep .th, .rows.rep .tr { grid-template-columns: minmax(0, 2.2fr) repeat(6, minmax(0, 1fr)); }
+@media print { .rp-filters { display: none !important; } .vis.ch .cbox canvas { max-width: 100%; } }

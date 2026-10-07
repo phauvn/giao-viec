@@ -1,6 +1,6 @@
 (function () {
   var cfg = window.APP_CONFIG || {};
-  var S = { me: null, users: [], tasks: [], statuses: [], priorities: [], view: 'dash', f: { q: '', user: '', status: '' }, ready: false, lim: 80, rp: 'month' };
+  var S = { me: null, users: [], tasks: [], statuses: [], priorities: [], view: 'dash', f: { q: '', user: '', status: '' }, ready: false, lim: 80, rp: 'year', rg: '', ru: '' };
   var $ = function (id) { return document.getElementById(id); };
   var theme = 'dark'; try { theme = localStorage.getItem('gv_theme') || 'dark'; } catch (e) { /* ignore */ }
   document.documentElement.dataset.theme = theme;
@@ -106,10 +106,11 @@
   var TITLES = { dash: 'Tổng quan', all: 'Tất cả công việc', kan: 'Bảng Kanban', mine: 'Việc của tôi', users: 'Nhân sự' };
   function tabs() {
     return S.me.isAdmin
-      ? [['dash', 'Tổng quan', 'dash'], ['all', 'Tất cả việc', 'list'], ['kan', 'Kanban', 'kan'], ['report', 'Báo cáo', 'chart'], ['mine', 'Việc của tôi', 'mine'], ['users', 'Nhân sự', 'users'], ['rec', 'Việc lặp', 'repeat']]
+      ? [['dash', 'Tổng quan', 'dash'], ['all', 'Tất cả việc', 'list'], ['kan', 'Kanban', 'kan'], ['report', 'Thống kê', 'chart'], ['mine', 'Việc của tôi', 'mine'], ['users', 'Nhân sự', 'users'], ['rec', 'Việc lặp', 'repeat']]
       : [['mine', 'Việc của tôi', 'mine']];
   }
   function render() {
+    killCharts();
     var t = tabs();
     var nav = t.map(function (x) { return '<button data-v="' + x[0] + '"' + (S.view === x[0] ? ' aria-current="page"' : '') + '>' + ic(x[2]) + '<span>' + x[1] + '</span></button>'; }).join('');
     $('app').innerHTML =
@@ -119,7 +120,7 @@
       '<button id="thm" aria-label="Đổi giao diện sáng hoặc tối" title="Sáng / tối">' + ic(theme === 'dark' ? 'sun' : 'moon') + '</button>' +
       '<button id="out" aria-label="Đăng xuất" title="Đăng xuất">' + ic('out') + '</button></div></aside>' +
       '<main class="main" id="main"></main></div>' +
-      (t.length > 1 ? '<nav class="tabbar" aria-label="Chính">' + t.filter(function (x) { return x[0] !== 'users' && x[0] !== 'rec'; }).map(function (x) { return '<button data-v="' + x[0] + '"' + (S.view === x[0] ? ' aria-current="page"' : '') + '>' + ic(x[2]) + '<span>' + x[1] + '</span></button>'; }).join('') + '</nav>' : '');
+      (t.length > 1 ? '<nav class="tabbar" aria-label="Chính">' + t.filter(function (x) { return x[0] !== 'users' && x[0] !== 'rec' && x[0] !== 'kan'; }).map(function (x) { return '<button data-v="' + x[0] + '"' + (S.view === x[0] ? ' aria-current="page"' : '') + '>' + ic(x[2]) + '<span>' + x[1] + '</span></button>'; }).join('') + '</nav>' : '');
     document.querySelectorAll('[data-v]').forEach(function (b) { b.onclick = function () { S.view = b.dataset.v; render(); window.scrollTo(0, 0); }; });
     $('out').onclick = logout; $('thm').onclick = toggleTheme;
     var v = { dash: vDash, all: vAll, kan: vKan, report: vReport, mine: vMine, users: vUsers, rec: vRec }[S.view];
@@ -181,7 +182,7 @@
       '<div class="kpi late"><b>' + late.length + '</b><span>Trễ hạn</span></div>' +
       '<div class="kpi wait"><b>' + cnt('Chờ duyệt') + '</b><span>Chờ bạn duyệt</span></div>' +
       '<div class="kpi wait"><b>' + cnt('Chờ phân công') + '</b><span>Chờ phân công</span></div>' +
-      '<div class="kpi ok"><b>' + done7.length + '</b><span>Xong trong 7 ngày</span></div></section>';
+      '<div class="kpi ok"><b>' + cnt('Hoàn thành') + '</b><span>Đã hoàn thành</span></div></section>';
     h += visuals(T);
 
     var staff = S.users.filter(function (u) { return u.role !== 'Admin' || T.some(function (t) { return t.assignee === u.email; }); });
@@ -205,7 +206,7 @@
     h += '<div class="two"><div><h2 class="h2">Cần bạn xử lý <small>' + need.length + ' việc</small></h2>' +
       list(need, true, 'Không có việc nào chờ bạn', 'Việc nộp kết quả hoặc chưa có người nhận sẽ hiện ở đây.') + '</div>' +
       '<div><h2 class="h2">Sắp đến hạn <small>theo thứ tự hạn</small></h2>' + list(soon, true, 'Chưa có việc nào có hạn', 'Đặt hạn khi giao việc để theo dõi tại đây.') + '</div></div>';
-    m.innerHTML = h + '<div id="syncBox"></div>'; afterHead(); bind(m); loadSync();
+    m.innerHTML = h + '<div id="syncBox"></div>'; afterHead(); bind(m); drawVisuals(T); loadSync();
     m.querySelectorAll('[data-user]').forEach(function (b) { b.onclick = function () { S.f.user = String(b.dataset.user).toLowerCase(); S.f.status = ''; S.view = 'all'; render(); }; });
   }
 
@@ -382,52 +383,90 @@
     };
   }
 
-  // ---------- Biểu đồ tổng quan ----------
+  // ---------- Biểu đồ dùng chung (Chart.js) ----------
+  var BK = [['done', 'Hoàn thành', '--green'], ['review', 'Chờ duyệt', '--amber-fill'], ['late', 'Trễ hạn', '--red'], ['doing', 'Đang thực hiện', '--cobalt'], ['todo', 'Chưa thực hiện', '--ink-2']];
+  function bucket(t) {
+    if (t.status === 'Hoàn thành') return 'done';
+    if (t.status === 'Chờ duyệt') return 'review';
+    if (isLate(t)) return 'late';
+    if (t.status === 'Đang làm') return 'doing';
+    return 'todo';
+  }
+  function cssv(n) { return getComputedStyle(document.documentElement).getPropertyValue(n).trim(); }
+  var charts = [];
+  function killCharts() { charts.forEach(function (c) { try { c.destroy(); } catch (e) { /* ignore */ } }); charts = []; }
+  function mkChart(id, cfg) {
+    var el = $(id); if (!el) return;
+    if (!window.Chart) { el.parentNode.innerHTML = '<p class="muted2">Không tải được thư viện biểu đồ. Kiểm tra kết nối mạng rồi tải lại trang.</p>'; return; }
+    Chart.defaults.font.family = '"Be Vietnam Pro", system-ui, sans-serif';
+    Chart.defaults.font.size = 12;
+    Chart.defaults.color = cssv('--ink-2');
+    Chart.defaults.borderColor = cssv('--line');
+    cfg.options = cfg.options || {};
+    cfg.options.responsive = true; cfg.options.maintainAspectRatio = false;
+    cfg.options.animation = window.matchMedia('(prefers-reduced-motion: reduce)').matches ? false : { duration: 400 };
+    charts.push(new Chart(el, cfg));
+  }
+  function chartBox(id, title, sub, h, label) {
+    return '<figure class="vis ch"><figcaption><b>' + title + '</b>' + (sub ? '<span>' + sub + '</span>' : '') + '</figcaption><div class="cbox" style="height:' + h + 'px"><canvas id="' + id + '" role="img" aria-label="' + esc(label || title) + '"></canvas></div></figure>';
+  }
   function pctOf(a, b) { return b ? Math.round(a / b * 100) : null; }
+  function mondayOf(d) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
+  function countBuckets(list) { var c = { done: 0, review: 0, late: 0, doing: 0, todo: 0 }; list.forEach(function (t) { c[bucket(t)]++; }); return c; }
+
+  function doughnutCfg(list) {
+    var c = countBuckets(list);
+    return { type: 'doughnut', data: { labels: BK.map(function (b) { return b[1]; }), datasets: [{ data: BK.map(function (b) { return c[b[0]]; }), backgroundColor: BK.map(function (b) { return cssv(b[2]); }), borderColor: cssv('--paper'), borderWidth: 2 }] },
+      options: { cutout: '62%', plugins: { legend: { position: 'bottom', labels: { boxWidth: 12, padding: 12 } }, tooltip: { callbacks: { label: function (x) { var tot = list.length || 1; return ' ' + x.label + ': ' + x.parsed + ' việc (' + Math.round(x.parsed / tot * 100) + '%)'; } } } } } };
+  }
+  function monthsCfg(list, maxMonths) {
+    var map = {};
+    list.forEach(function (t) { if (!t.due) return; var k = String(t.due).slice(0, 7); (map[k] = map[k] || { done: 0, rest: 0 })[t.status === 'Hoàn thành' ? 'done' : 'rest']++; });
+    var keys = Object.keys(map).sort(); if (maxMonths) keys = keys.slice(-maxMonths);
+    var label = function (k) { return k.slice(5) + '/' + k.slice(0, 4); };
+    return { type: 'bar', data: { labels: keys.map(label), datasets: [
+      { type: 'line', label: 'Tỷ lệ hoàn thành (%)', data: keys.map(function (k) { return pctOf(map[k].done, map[k].done + map[k].rest); }), yAxisID: 'y1', borderColor: cssv('--amber-fill'), backgroundColor: cssv('--amber-fill'), tension: .3, pointRadius: 3, borderWidth: 2, order: 0 },
+      { type: 'bar', label: 'Hoàn thành', data: keys.map(function (k) { return map[k].done; }), backgroundColor: cssv('--green'), stack: 's', order: 1, borderRadius: 3 },
+      { type: 'bar', label: 'Chưa hoàn thành', data: keys.map(function (k) { return map[k].rest; }), backgroundColor: cssv('--cobalt'), stack: 's', order: 1, borderRadius: 3 }
+    ] }, options: { interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+      scales: { x: { stacked: true, grid: { display: false } }, y: { stacked: true, beginAtZero: true, title: { display: true, text: 'Số việc đến hạn' }, ticks: { precision: 0 } },
+        y1: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, title: { display: true, text: '%' } } } } };
+  }
+  function stackedCfg(rows, nameOf, horizontal) {
+    return { type: 'bar', data: { labels: rows.map(nameOf), datasets: BK.map(function (b) { return { label: b[1], data: rows.map(function (r) { return r.c[b[0]]; }), backgroundColor: cssv(b[2]), borderRadius: 2 }; }) },
+      options: { indexAxis: horizontal ? 'y' : 'x', interaction: { mode: 'index', intersect: false }, plugins: { legend: { position: 'bottom', labels: { boxWidth: 12 } } },
+        scales: { x: { stacked: true, beginAtZero: true, grid: { display: !!horizontal }, ticks: { precision: 0 } }, y: { stacked: true, grid: { display: !horizontal }, ticks: { precision: 0 } } } } };
+  }
+  function ageCfg(list) {
+    var bins = [['1-7 ngày', 1, 7], ['8-30 ngày', 8, 30], ['31-90 ngày', 31, 90], ['91-180 ngày', 91, 180], ['Trên 180 ngày', 181, 99999]], n = bins.map(function () { return 0; });
+    list.filter(function (t) { return bucket(t) === 'late'; }).forEach(function (t) { var d = -diffDays(t.due); bins.forEach(function (b, i) { if (d >= b[1] && d <= b[2]) n[i]++; }); });
+    return { type: 'bar', data: { labels: bins.map(function (b) { return b[0]; }), datasets: [{ label: 'Việc trễ hạn', data: n, backgroundColor: cssv('--red'), borderRadius: 3 }] },
+      options: { plugins: { legend: { display: false } }, scales: { x: { grid: { display: false } }, y: { beginAtZero: true, ticks: { precision: 0 } } } } };
+  }
+
+  // ---------- Biểu đồ tổng quan ----------
   function gauge(v, label, sub, tone) {
     var val = v == null ? 0 : Math.max(0, Math.min(100, v));
     return '<figure class="vis g-' + tone + '"><svg viewBox="0 0 120 74" role="img" aria-label="' + esc(label) + ': ' + (v == null ? 'chưa có dữ liệu' : v + '%') + '">' +
       '<path d="M12 64A48 48 0 0 1 108 64" pathLength="100" class="gt"/><path d="M12 64A48 48 0 0 1 108 64" pathLength="100" class="gv" stroke-dasharray="' + val + ' 1000"' + (val > 0 ? '' : ' style="opacity:0"') + '/>' +
       '<text x="60" y="58" text-anchor="middle" class="gn">' + (v == null ? '—' : v + '%') + '</text></svg><figcaption><b>' + esc(label) + '</b><span>' + esc(sub) + '</span></figcaption></figure>';
   }
-  function mondayOf(d) { var x = new Date(d.getFullYear(), d.getMonth(), d.getDate()); x.setDate(x.getDate() - ((x.getDay() + 6) % 7)); return x; }
-  function weekBars(T) {
-    var start = mondayOf(new Date()), W = [];
-    for (var i = 7; i >= 0; i--) { var d = new Date(start); d.setDate(d.getDate() - i * 7); W.push({ from: ymd(d), n: 0, label: ('0' + d.getDate()).slice(-2) + '/' + ('0' + (d.getMonth() + 1)).slice(-2) }); }
-    T.forEach(function (t) {
-      if (t.status !== 'Hoàn thành' || !t.done) return;
-      var ds = String(t.done).slice(0, 10);
-      for (var k = W.length - 1; k >= 0; k--) { if (ds >= W[k].from) { W[k].n++; break; } }
-    });
-    var max = Math.max(1, Math.max.apply(null, W.map(function (w) { return w.n; })));
-    return '<svg viewBox="0 0 320 130" class="wk" role="img" aria-label="Số việc hoàn thành mỗi tuần trong 8 tuần gần nhất">' + W.map(function (w, i) {
-      var h = Math.round(w.n / max * 78), x = 8 + i * 39;
-      return '<rect x="' + x + '" y="' + (92 - h) + '" width="28" height="' + Math.max(h, 2) + '" rx="3" class="' + (i === 7 ? 'cur' : '') + '"/>' +
-        '<text x="' + (x + 14) + '" y="' + (86 - h) + '" text-anchor="middle" class="v">' + w.n + '</text><text x="' + (x + 14) + '" y="112" text-anchor="middle" class="l">' + w.label + '</text>';
-    }).join('') + '</svg>';
-  }
-  function hbars(rows, total) {
-    return '<div class="hb">' + rows.map(function (r) {
-      return '<div class="hbr"><span class="hl">' + esc(r.l) + '</span><span class="ht"><i style="width:' + (total ? Math.round(r.n / total * 100) : 0) + '%;background:' + r.c + '"></i></span><b>' + r.n + '</b></div>';
-    }).join('') + '</div>';
-  }
   function visuals(T) {
-    var since30 = ymd(new Date(Date.now() - 30 * 86400000));
-    var done30 = T.filter(function (t) { return t.status === 'Hoàn thành' && String(t.done).slice(0, 10) >= since30 && t.due; });
-    var onTime = done30.filter(function (t) { return String(t.done).slice(0, 10) <= String(t.due).slice(0, 10); }).length;
-    var open = T.filter(isOpen), withDue = open.filter(function (t) { return t.due; });
-    var avg = open.length ? Math.round(open.reduce(function (a, t) { return a + (Number(t.progress) || 0); }, 0) / open.length) : null;
-    var cnt = function (s) { return T.filter(function (t) { return t.status === s; }).length; };
-    var colors = { 'Chờ phân công': 'var(--amber-fill)', 'Mới': 'var(--ink-2)', 'Đang làm': 'var(--cobalt)', 'Chờ duyệt': 'var(--amber-fill)', 'Hoàn thành': 'var(--green)' };
-    var bySrc = {}; open.forEach(function (t) { bySrc[t.source || 'Khác'] = (bySrc[t.source || 'Khác'] || 0) + 1; });
-    var srcRows = Object.keys(bySrc).sort(function (a, b) { return bySrc[b] - bySrc[a]; }).slice(0, 6).map(function (k) { return { l: k, n: bySrc[k], c: 'var(--cobalt)' }; });
+    var year = String(new Date().getFullYear()), month = today().slice(0, 7);
+    var inYear = T.filter(function (t) { return t.due && String(t.due).slice(0, 4) === year; });
+    var inMonth = T.filter(function (t) { return t.due && String(t.due).slice(0, 7) === month; });
+    var open = T.filter(isOpen), withDue = open.filter(function (t) { return t.due; }), late = withDue.filter(isLate).length;
+    var dy = inYear.filter(function (t) { return t.status === 'Hoàn thành'; }).length, dm = inMonth.filter(function (t) { return t.status === 'Hoàn thành'; }).length;
     return '<section class="vis-grid" aria-label="Biểu đồ">' +
-      gauge(pctOf(onTime, done30.length), 'Hoàn thành đúng hạn', done30.length ? onTime + ' / ' + done30.length + ' việc, 30 ngày qua' : 'Chưa có việc hoàn thành có hạn', 'ok') +
-      gauge(pctOf(withDue.filter(isLate).length, withDue.length), 'Việc đang trễ hạn', withDue.filter(isLate).length + ' / ' + withDue.length + ' việc đang mở có hạn', 'bad') +
-      gauge(avg, 'Tiến độ trung bình', 'Trên ' + open.length + ' việc đang mở', 'brand') +
-      '<figure class="vis wide"><figcaption><b>Việc hoàn thành mỗi tuần</b><span>8 tuần gần nhất, tuần này ở bên phải</span></figcaption>' + weekBars(T) + '</figure>' +
-      '<figure class="vis"><figcaption><b>Theo trạng thái</b></figcaption>' + hbars(S.statuses.map(function (s) { return { l: s, n: cnt(s), c: colors[s] }; }), T.length) + '</figure>' +
-      '<figure class="vis"><figcaption><b>Việc đang mở theo nguồn</b></figcaption>' + (srcRows.length ? hbars(srcRows, open.length) : '<p class="muted2">Chưa có việc đang mở.</p>') + '</figure></section>';
+      gauge(pctOf(dy, inYear.length), 'Hoàn thành năm ' + year, dy + ' / ' + inYear.length + ' việc đến hạn trong năm', 'ok') +
+      gauge(pctOf(dm, inMonth.length), 'Hoàn thành tháng này', dm + ' / ' + inMonth.length + ' việc đến hạn trong tháng', 'brand') +
+      gauge(pctOf(late, withDue.length), 'Việc đang trễ hạn', late + ' / ' + withDue.length + ' việc đang mở có hạn', 'bad') +
+      chartBox('cMonths', 'Việc đến hạn theo tháng', '6 tháng gần nhất; đường vàng là tỷ lệ hoàn thành', 280, 'Số việc đến hạn theo tháng, hoàn thành và chưa hoàn thành') +
+      chartBox('cStatus', 'Cơ cấu trạng thái', 'Toàn bộ công việc trong hệ thống', 280, 'Cơ cấu trạng thái công việc') + '</section>';
+  }
+  function drawVisuals(T) {
+    mkChart('cMonths', monthsCfg(T, 6));
+    mkChart('cStatus', doughnutCfg(T));
   }
 
   // ---------- Đồng bộ sổ theo dõi ----------
@@ -459,66 +498,78 @@
       .catch(function (e) { btn.disabled = false; btn.textContent = 'Đồng bộ ngay'; toast(e.message, true); });
   }
 
-  // ---------- Báo cáo ----------
-  var RANGES = [['week', 'Tuần này'], ['month', 'Tháng này'], ['30', '30 ngày'], ['90', '90 ngày'], ['year', 'Năm nay']];
-  function rangeFrom(k) {
-    var d = new Date();
-    if (k === 'week') return ymd(mondayOf(d));
-    if (k === 'month') return ymd(new Date(d.getFullYear(), d.getMonth(), 1));
-    if (k === 'year') return ymd(new Date(d.getFullYear(), 0, 1));
-    return ymd(new Date(Date.now() - Number(k) * 86400000));
+  // ---------- Thống kê và báo cáo ----------
+  var RANGES = [['month', 'Tháng này'], ['quarter', 'Quý này'], ['6m', '6 tháng gần nhất'], ['year', 'Năm nay'], ['all', 'Tất cả']];
+  function ymdEnd(y, m) { return ymd(new Date(y, m + 1, 0)); }
+  function rangeBounds(k) {
+    var d = new Date(), y = d.getFullYear(), m = d.getMonth();
+    if (k === 'month') return [ymd(new Date(y, m, 1)), ymdEnd(y, m)];
+    if (k === 'quarter') { var q = Math.floor(m / 3) * 3; return [ymd(new Date(y, q, 1)), ymdEnd(y, q + 2)]; }
+    if (k === '6m') return [ymd(new Date(y, m - 5, 1)), ymdEnd(y, m)];
+    if (k === 'year') return [y + '-01-01', y + '-12-31'];
+    return ['0000-00-00', '9999-12-31'];
   }
-  function reportData() {
-    var from = rangeFrom(S.rp);
-    var rows = S.users.map(function (u) {
-      var e = String(u.email).toLowerCase(), mine = S.tasks.filter(function (t) { return String(t.assignee).toLowerCase() === e; });
-      var done = mine.filter(function (t) { return t.status === 'Hoàn thành' && String(t.done).slice(0, 10) >= from; });
-      var dd = done.filter(function (t) { return t.due; }), ok = dd.filter(function (t) { return String(t.done).slice(0, 10) <= String(t.due).slice(0, 10); }).length;
-      var open = mine.filter(isOpen);
-      var span = done.filter(function (t) { return t.source !== 'Google Sheet' && t.created && t.done; }).map(function (t) { return (new Date(t.done) - new Date(t.created)) / 86400000; });
-      return { u: u, done: done.length, ontime: pctOf(ok, dd.length), open: open.length, late: open.filter(isLate).length,
-        avg: open.length ? Math.round(open.reduce(function (a, t) { return a + (Number(t.progress) || 0); }, 0) / open.length) : null,
-        days: span.length ? Math.round(span.reduce(function (a, b) { return a + b; }, 0) / span.length * 10) / 10 : null };
-    }).filter(function (r) { return r.done || r.open; }).sort(function (a, b) { return b.late - a.late || b.done - a.done; });
-    var lates = S.tasks.filter(isLate).sort(function (a, b) { return String(a.due) < String(b.due) ? -1 : 1; });
-    var bySrc = {};
-    S.tasks.forEach(function (t) {
-      var k = t.source || 'Khác'; bySrc[k] = bySrc[k] || { done: 0, open: 0, late: 0 };
-      if (t.status === 'Hoàn thành') { if (String(t.done).slice(0, 10) >= from) bySrc[k].done++; } else { bySrc[k].open++; if (isLate(t)) bySrc[k].late++; }
-    });
-    return { from: from, rows: rows, lates: lates, bySrc: bySrc };
+  function reportUniverse() {
+    var b = rangeBounds(S.rp), rows = S.tasks.filter(function (t) { return t.due && String(t.due).slice(0, 10) >= b[0] && String(t.due).slice(0, 10) <= b[1]; });
+    if (S.rg) rows = rows.filter(function (t) { var u = user(t.assignee); return (u ? u.group : 'Chưa giao') === S.rg; });
+    if (S.ru) rows = rows.filter(function (t) { return String(t.assignee).toLowerCase() === S.ru; });
+    return { rows: rows, from: b[0], to: b[1], noDue: S.tasks.filter(function (t) { return !t.due; }).length };
+  }
+  function groupOf(t) { var u = user(t.assignee); return t.assignee ? (u && u.group ? u.group : 'Khác') : 'Chưa giao'; }
+  function aggregate(rows, keyFn) {
+    var m = {};
+    rows.forEach(function (t) { var k = keyFn(t); m[k] = m[k] || { k: k, n: 0, c: { done: 0, review: 0, late: 0, doing: 0, todo: 0 } }; m[k].n++; m[k].c[bucket(t)]++; });
+    return Object.keys(m).map(function (k) { return m[k]; });
   }
   function vReport(m) {
-    var R = reportData(), tot = R.rows.reduce(function (a, r) { a.done += r.done; a.open += r.open; a.late += r.late; return a; }, { done: 0, open: 0, late: 0 });
+    var U = reportUniverse(), rows = U.rows, c = countBuckets(rows), tot = rows.length;
     var label = RANGES.filter(function (r) { return r[0] === S.rp; })[0][1];
-    m.innerHTML = head('Báo cáo', label + ': từ ' + fmtDate(R.from) + ' đến ' + fmtDate(today()), false).replace('</header>',
+    var groups = {}; S.users.forEach(function (u) { if (u.group) groups[u.group] = 1; });
+    var byPerson = aggregate(rows.filter(function (t) { return t.assignee; }), function (t) { return String(t.assignee).toLowerCase(); }).sort(function (a, b) { return b.c.late - a.c.late || b.n - a.n; });
+    var byGroup = aggregate(rows, groupOf).sort(function (a, b) { return b.n - a.n; });
+    var lates = rows.filter(function (t) { return bucket(t) === 'late'; }).sort(function (a, b) { return String(a.due) < String(b.due) ? -1 : 1; });
+    var kpi = function (cls, n, l) { return '<div class="kpi ' + cls + '"><b>' + n + '</b><span>' + l + '</span></div>'; };
+    m.innerHTML = head('Thống kê và báo cáo', (S.rp === 'all' ? 'Tất cả công việc có hạn' : label + ': việc đến hạn từ ' + fmtDate(U.from) + ' đến ' + fmtDate(U.to)) + (U.noDue ? ' · ' + U.noDue + ' việc chưa đặt hạn không tính' : ''), false).replace('</header>',
       '<div class="rp-tools"><button class="btn" id="csv">Xuất Excel (CSV)</button><button class="btn" id="prn">In hoặc lưu PDF</button></div></header>') +
-      '<div class="bar rp-range" role="group" aria-label="Kỳ báo cáo">' + RANGES.map(function (r) { return '<button class="btn seg' + (S.rp === r[0] ? ' on' : '') + '" data-rp="' + r[0] + '">' + r[1] + '</button>'; }).join('') + '</div>' +
-      '<section class="kpis"><div class="kpi ok"><b>' + tot.done + '</b><span>Hoàn thành trong kỳ</span></div><div class="kpi"><b>' + tot.open + '</b><span>Đang mở hiện tại</span></div>' +
-      '<div class="kpi late"><b>' + tot.late + '</b><span>Đang trễ hạn</span></div></section>' +
-      '<h2 class="h2">Theo nhân sự</h2><div class="rows rep"><div class="th"><span>Nhân sự</span><span>Hoàn thành</span><span>Đúng hạn</span><span>Đang mở</span><span>Trễ hạn</span><span>Tiến độ TB</span><span>Ngày xử lý TB</span></div>' +
-      (R.rows.length ? R.rows.map(function (r) {
-        return '<div class="tr nb"><div class="who2"><span class="avatar" style="width:28px;height:28px;font-size:11px">' + esc(initials(r.u.name)) + '</span><span>' + esc(r.u.name) + '</span></div><div data-l="Hoàn thành">' + r.done + '</div><div data-l="Đúng hạn">' + (r.ontime == null ? '—' : r.ontime + '%') +
-          '</div><div data-l="Đang mở">' + r.open + '</div><div data-l="Trễ hạn" class="' + (r.late ? 'neg' : '') + '">' + r.late + '</div><div data-l="Tiến độ TB">' + (r.avg == null ? '—' : r.avg + '%') + '</div><div data-l="Ngày xử lý TB">' + (r.days == null ? '—' : r.days) + '</div></div>';
-      }).join('') : '<div class="empty" style="border:0">Chưa có dữ liệu trong kỳ này.</div>') + '</div>' +
-      '<div class="two"><div><h2 class="h2">Theo nguồn việc</h2><div class="rows rep3"><div class="th"><span>Nguồn</span><span>Xong trong kỳ</span><span>Đang mở</span><span>Trễ hạn</span></div>' +
-      Object.keys(R.bySrc).map(function (k) { var b = R.bySrc[k]; return '<div class="tr nb"><div>' + esc(k) + '</div><div data-l="Xong trong kỳ">' + b.done + '</div><div data-l="Đang mở">' + b.open + '</div><div data-l="Trễ hạn" class="' + (b.late ? 'neg' : '') + '">' + b.late + '</div></div>'; }).join('') + '</div></div>' +
-      '<div><h2 class="h2">Việc trễ hạn và lý do <small>' + R.lates.length + ' việc</small></h2>' +
-      (R.lates.length ? '<div class="rows">' + R.lates.slice(0, 25).map(function (t) {
-        return '<button class="tr late lt" data-id="' + esc(t.id) + '"><div><div class="t">' + esc(t.title) + '</div><div class="sub">' + esc(uname(t.assignee)) + ' · hạn ' + fmtDate(t.due) + ' · trễ ' + (-diffDays(t.due)) + ' ngày</div>' +
+      '<div class="bar rp-filters" role="group" aria-label="Bộ lọc báo cáo"><div><label class="f" for="rpR">Kỳ (theo hạn hoàn thành)</label><select id="rpR">' + RANGES.map(function (r) { return '<option value="' + r[0] + '"' + (S.rp === r[0] ? ' selected' : '') + '>' + r[1] + '</option>'; }).join('') + '</select></div>' +
+      '<div><label class="f" for="rpG">Nhóm chuyên môn</label><select id="rpG"><option value="">Tất cả nhóm</option>' + Object.keys(groups).concat(['Chưa giao']).map(function (g) { return '<option' + (S.rg === g ? ' selected' : '') + '>' + esc(g) + '</option>'; }).join('') + '</select></div>' +
+      '<div><label class="f" for="rpU">Nhân sự</label><select id="rpU"><option value="">Tất cả nhân sự</option>' + S.users.map(function (u) { return '<option value="' + esc(String(u.email).toLowerCase()) + '"' + (S.ru === String(u.email).toLowerCase() ? ' selected' : '') + '>' + esc(u.name) + '</option>'; }).join('') + '</select></div></div>' +
+      '<section class="kpis" aria-label="Tổng hợp">' + kpi('', tot, 'Tổng số việc') + kpi('ok', c.done + ' <small>' + (pctOf(c.done, tot) == null ? '' : pctOf(c.done, tot) + '%') + '</small>', 'Hoàn thành') +
+      kpi('', c.doing, 'Đang thực hiện') + kpi('wait', c.review, 'Chờ duyệt') + kpi('late', c.late, 'Trễ hạn') + kpi('', c.todo, 'Chưa thực hiện') + '</section>' +
+      (tot ? '<section class="vis-grid" aria-label="Biểu đồ thống kê">' +
+        chartBox('rStatus', 'Cơ cấu trạng thái', tot + ' việc trong kỳ', 280) + chartBox('rMonths', 'Việc đến hạn theo tháng', 'Cột: hoàn thành và chưa hoàn thành. Đường: tỷ lệ hoàn thành', 280, 'Số việc đến hạn theo tháng') +
+        chartBox('rAge', 'Tuổi trễ hạn', c.late + ' việc đang trễ, tính theo số ngày quá hạn', 280, 'Phân bố việc trễ hạn theo số ngày') +
+        '<figure class="vis ch wide"><figcaption><b>Khối lượng và tiến độ theo nhân sự</b><span>Mỗi thanh là toàn bộ việc của một người trong kỳ</span></figcaption><div class="cbox" style="height:' + (70 + byPerson.length * 30) + 'px"><canvas id="rPerson" role="img" aria-label="Công việc theo nhân sự"></canvas></div></figure>' +
+        chartBox('rGroup', 'Theo nhóm chuyên môn', 'Gồm cả việc chưa giao', 280, 'Công việc theo nhóm chuyên môn') + '</section>' : '<div class="empty"><b>Không có việc nào trong kỳ này</b>Đổi kỳ báo cáo hoặc bỏ bộ lọc nhóm, nhân sự.</div>') +
+      '<h2 class="h2">Bảng theo nhân sự <small>' + byPerson.length + ' người</small></h2><div class="rows rep"><div class="th"><span>Nhân sự</span><span>Tổng</span><span>Hoàn thành</span><span>Tỷ lệ</span><span>Đang làm</span><span>Chờ duyệt</span><span>Trễ hạn</span></div>' +
+      (byPerson.length ? byPerson.map(function (r) {
+        return '<div class="tr nb"><div class="who2"><span class="avatar" style="width:28px;height:28px;font-size:11px">' + esc(initials(uname(r.k))) + '</span><span>' + esc(uname(r.k)) + '</span></div><div data-l="Tổng">' + r.n + '</div><div data-l="Hoàn thành">' + r.c.done + '</div><div data-l="Tỷ lệ">' + (pctOf(r.c.done, r.n) == null ? '—' : pctOf(r.c.done, r.n) + '%') + '</div><div data-l="Đang làm">' + r.c.doing + '</div><div data-l="Chờ duyệt">' + r.c.review + '</div><div data-l="Trễ hạn" class="' + (r.c.late ? 'neg' : '') + '">' + r.c.late + '</div></div>';
+      }).join('') : '<div class="empty" style="border:0">Chưa có dữ liệu.</div>') + '</div>' +
+      '<h2 class="h2">Việc trễ hạn và lý do <small>' + lates.length + ' việc, cũ nhất ở trên</small></h2>' +
+      (lates.length ? '<div class="rows">' + lates.slice(0, 30).map(function (t) {
+        return '<button class="tr late lt" data-id="' + esc(t.id) + '"><div><div class="t">' + esc(t.title) + '</div><div class="sub">' + esc(uname(t.assignee)) + ' · hạn ' + fmtDate(t.due) + ' · trễ ' + (-diffDays(t.due)) + ' ngày' + (t.doc_no ? ' · ' + esc(t.doc_no) : '') + '</div>' +
           '<div class="sub">' + (t.late_reason ? 'Lý do: ' + esc(t.late_reason) : 'Chưa ghi lý do trễ hạn') + '</div></div></button>';
-      }).join('') + '</div>' : '<div class="empty"><b>Không có việc trễ hạn</b>Mọi việc đang mở đều còn trong hạn.</div>') + '</div></div>';
+      }).join('') + '</div>' + (lates.length > 30 ? '<p class="muted2">Hiển thị 30 việc đầu. Xuất CSV để xem đủ.</p>' : '') : '<div class="empty"><b>Không có việc trễ hạn</b>Mọi việc đang mở trong kỳ đều còn trong hạn.</div>');
     afterHead(); bind(m);
-    m.querySelectorAll('[data-rp]').forEach(function (b) { b.onclick = function () { S.rp = b.dataset.rp; render(); }; });
+    $('rpR').onchange = function () { S.rp = this.value; render(); };
+    $('rpG').onchange = function () { S.rg = this.value; render(); };
+    $('rpU').onchange = function () { S.ru = this.value; render(); };
     $('prn').onclick = function () { window.print(); };
-    $('csv').onclick = function () { exportCsv(R); };
+    $('csv').onclick = function () { exportCsv(U, byPerson, lates); };
+    if (tot) {
+      mkChart('rStatus', doughnutCfg(rows));
+      mkChart('rMonths', monthsCfg(rows, 0));
+      mkChart('rAge', ageCfg(rows));
+      mkChart('rPerson', stackedCfg(byPerson, function (r) { return shortName(uname(r.k)); }, true));
+      mkChart('rGroup', stackedCfg(byGroup, function (r) { return r.k; }, false));
+    }
   }
-  function exportCsv(R) {
+  function exportCsv(U, byPerson, lates) {
     var q = function (v) { v = String(v == null ? '' : v); return /[",\n;]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
-    var lines = [['Nhân sự', 'Chức vụ', 'Hoàn thành trong kỳ', 'Đúng hạn (%)', 'Đang mở', 'Trễ hạn', 'Tiến độ TB (%)', 'Ngày xử lý TB'].map(q).join(',')];
-    R.rows.forEach(function (r) { lines.push([r.u.name, r.u.title, r.done, r.ontime == null ? '' : r.ontime, r.open, r.late, r.avg == null ? '' : r.avg, r.days == null ? '' : r.days].map(q).join(',')); });
+    var lines = [['Nhân sự', 'Tổng việc', 'Hoàn thành', 'Tỷ lệ hoàn thành (%)', 'Đang thực hiện', 'Chờ duyệt', 'Trễ hạn', 'Chưa thực hiện'].map(q).join(',')];
+    byPerson.forEach(function (r) { lines.push([uname(r.k), r.n, r.c.done, pctOf(r.c.done, r.n) == null ? '' : pctOf(r.c.done, r.n), r.c.doing, r.c.review, r.c.late, r.c.todo].map(q).join(',')); });
     lines.push('', ['Việc trễ hạn', 'Người nhận', 'Hạn', 'Số ngày trễ', 'Số văn bản', 'Lý do trễ hạn'].map(q).join(','));
-    R.lates.forEach(function (t) { lines.push([t.title, uname(t.assignee), fmtDate(t.due), -diffDays(t.due), t.doc_no, t.late_reason].map(q).join(',')); });
+    lates.forEach(function (t) { lines.push([t.title, uname(t.assignee), fmtDate(t.due), -diffDays(t.due), t.doc_no, t.late_reason].map(q).join(',')); });
     var blob = new Blob(['﻿' + lines.join('\r\n')], { type: 'text/csv;charset=utf-8' });
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'bao-cao-' + today() + '.csv';
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);

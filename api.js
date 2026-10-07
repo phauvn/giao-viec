@@ -1,7 +1,7 @@
 /* Lớp gọi API: thật (Apps Script) hoặc xem thử (dữ liệu mẫu trong trình duyệt). */
 (function () {
   var cfg = window.APP_CONFIG || {};
-  var Api = { demo: !cfg.API_URL, token: '' };
+  var Api = { demo: !cfg.API_URL || /[?&]demo=1/.test(location.search), token: '' };
 
   Api.call = function (action, params) {
     if (Api.demo) return Demo.call(action, params || {});
