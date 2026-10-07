@@ -98,7 +98,11 @@
   }
   function act(action, p, ok, btn) {
     if (btn) btn.disabled = true;
-    return Api.call(action, p).then(function () { toast(ok); closeDrawer(); return refresh(); })
+    return Api.call(action, p).then(function (r) {
+      var wb = r && r.writeback;
+      toast(ok + (wb === 'ok' ? ' và đã ghi "ok" vào sổ gốc' : (wb === 'fail' ? ' nhưng chưa ghi được vào sổ gốc (xem sheet Log)' : '')), wb === 'fail');
+      closeDrawer(); return refresh();
+    })
       .catch(function (e) { if (btn) btn.disabled = false; if (e.auth) { toast(e.message, true); logout(); } else toast(e.message, true); });
   }
 
@@ -540,6 +544,7 @@
         chartBox('rStatus', 'Cơ cấu trạng thái', tot + ' việc trong kỳ', 280) + chartBox('rMonths', 'Việc đến hạn theo tháng', 'Cột: hoàn thành và chưa hoàn thành. Đường: tỷ lệ hoàn thành', 280, 'Số việc đến hạn theo tháng') +
         chartBox('rAge', 'Tuổi trễ hạn', c.late + ' việc đang trễ, tính theo số ngày quá hạn', 280, 'Phân bố việc trễ hạn theo số ngày') +
         '<figure class="vis ch wide"><figcaption><b>Khối lượng và tiến độ theo nhân sự</b><span>Mỗi thanh là toàn bộ việc của một người trong kỳ</span></figcaption><div class="cbox" style="height:' + (70 + byPerson.length * 30) + 'px"><canvas id="rPerson" role="img" aria-label="Công việc theo nhân sự"></canvas></div></figure>' +
+        '<figure class="vis ch wide"><figcaption><b>Tỷ lệ hoàn thành theo nhân sự</b><span>Số việc hoàn thành trên tổng số việc được giao (đến hạn trong kỳ). Người chính được tính</span></figcaption><div class="cbox" style="height:' + (70 + byPerson.length * 30) + 'px"><canvas id="rRate" role="img" aria-label="Tỷ lệ hoàn thành theo nhân sự"></canvas></div></figure>' +
         chartBox('rGroup', 'Theo nhóm chuyên môn', 'Gồm cả việc chưa giao', 280, 'Công việc theo nhóm chuyên môn') + '</section>' : '<div class="empty"><b>Không có việc nào trong kỳ này</b>Đổi kỳ báo cáo hoặc bỏ bộ lọc nhóm, nhân sự.</div>') +
       '<h2 class="h2">Bảng theo nhân sự <small>' + byPerson.length + ' người</small></h2><div class="rows rep"><div class="th"><span>Nhân sự</span><span>Tổng</span><span>Hoàn thành</span><span>Tỷ lệ</span><span>Đang làm</span><span>Chờ duyệt</span><span>Trễ hạn</span></div>' +
       (byPerson.length ? byPerson.map(function (r) {
@@ -561,6 +566,9 @@
       mkChart('rMonths', monthsCfg(rows, 0));
       mkChart('rAge', ageCfg(rows));
       mkChart('rPerson', stackedCfg(byPerson, function (r) { return shortName(uname(r.k)); }, true));
+      var byRate = byPerson.slice().sort(function (a, b) { return (pctOf(b.c.done, b.n) || 0) - (pctOf(a.c.done, a.n) || 0) || b.n - a.n; });
+      mkChart('rRate', { type: 'bar', data: { labels: byRate.map(function (r) { return shortName(uname(r.k)) + ' (' + r.c.done + '/' + r.n + ')'; }), datasets: [{ label: 'Tỷ lệ hoàn thành (%)', data: byRate.map(function (r) { return pctOf(r.c.done, r.n); }), backgroundColor: cssv('--green'), borderRadius: 3 }] },
+        options: { indexAxis: 'y', plugins: { legend: { display: false }, tooltip: { callbacks: { label: function (x) { return ' ' + x.parsed.x + '% hoàn thành'; } } } }, scales: { x: { min: 0, max: 100, title: { display: true, text: '%' } }, y: { grid: { display: false } } } } });
       mkChart('rGroup', stackedCfg(byGroup, function (r) { return r.k; }, false));
     }
   }
