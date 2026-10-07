@@ -99,8 +99,8 @@
   function act(action, p, ok, btn) {
     if (btn) btn.disabled = true;
     return Api.call(action, p).then(function (r) {
-      var wb = r && r.writeback;
-      toast(ok + (wb === 'ok' ? ' và đã ghi "ok" vào sổ gốc' : (wb === 'fail' ? ' nhưng chưa ghi được vào sổ gốc (xem sheet Log)' : '')), wb === 'fail');
+      var wb = r && r.writeback, mr = r && r.mirror, bad = wb === 'fail' || mr === 'fail';
+      toast(ok + (wb === 'ok' ? ' và đã ghi "ok" vào sổ gốc' : (mr === 'ok' ? ' và đã ghi vào sổ gốc' : (bad ? ' nhưng chưa ghi được vào sổ gốc (xem sheet Log)' : ''))), bad);
       closeDrawer(); return refresh();
     })
       .catch(function (e) { if (btn) btn.disabled = false; if (e.auth) { toast(e.message, true); logout(); } else toast(e.message, true); });
@@ -316,7 +316,7 @@
     var h = '<h2 id="sheetTitle">' + esc(t.title) + '</h2><div class="meta">' + chip(t) + '<span>Hạn ' + fmtDate(t.due) + (isLate(t) ? ' (trễ ' + (-diffDays(t.due)) + ' ngày)' : '') + '</span><span>Ưu tiên ' + esc(t.priority.toLowerCase()) + '</span>' + (t.doc_no ? '<span>Số văn bản ' + esc(t.doc_no) + '</span>' : '') + '<span>Nguồn: ' + esc(t.source) + '</span></div>' +
       '<div style="margin-top:14px">' + run(t) + '</div>';
     if (admin) {
-      h += '<div class="sect"><b>Thông tin công việc</b><label class="f" for="eT">Tên công việc</label><input id="eT" value="' + esc(t.title) + '">' +
+      h += '<div class="sect"><b>Thông tin công việc</b><label class="f" for="eT">Tên công việc</label><input id="eT" value="' + esc(t.title) + '"' + (t.ext_key ? ' readonly title="Tiêu đề lấy từ sổ gốc, sửa trong sổ"' : '') + '>' +
         '<label class="f" for="eD">Nội dung</label><textarea id="eD">' + esc(t.description) + '</textarea>' +
         '<div class="grid3"><div><label class="f" for="eU">Người nhận</label><select id="eU">' + userOpts(t.assignee, 'Chưa giao') + '</select></div>' +
         '<div><label class="f" for="eDue">Hạn</label><input id="eDue" type="date" value="' + esc(String(t.due).slice(0, 10)) + '"></div>' +
