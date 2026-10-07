@@ -26,7 +26,7 @@ button { cursor: pointer; }
 .sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
 
 /* Khung */
-.shell { display: grid; grid-template-columns: 248px 1fr; min-height: 100vh; }
+.shell { display: grid; grid-template-columns: 248px minmax(0, 1fr); min-height: 100vh; }
 .side { background: var(--nav); color: var(--nav-ink); padding: 20px 14px; display: flex; flex-direction: column; gap: 22px; position: sticky; top: 0; height: 100vh; }
 .brand { padding: 0 8px; }
 .brand b { display: block; color: var(--nav-on); font-size: 17px; font-weight: 700; line-height: 1.25; }
@@ -45,7 +45,7 @@ button { cursor: pointer; }
 .avatar { width: 34px; height: 34px; border-radius: 50%; background: var(--cobalt-soft); color: var(--cobalt); display: grid; place-items: center; font-weight: 700; font-size: 13px; flex: none; }
 .side .avatar { background: rgba(255,255,255,.14); color: #fff; }
 
-.main { padding: 28px clamp(16px, 3vw, 40px) 60px; max-width: 1240px; width: 100%; }
+.main { padding: 28px clamp(16px, 3vw, 40px) 60px; max-width: 1240px; width: 100%; min-width: 0; }
 .head { display: flex; align-items: flex-end; justify-content: space-between; gap: 16px; flex-wrap: wrap; margin-bottom: 22px; }
 .head h1 { font-size: 26px; font-weight: 700; letter-spacing: -.01em; line-height: 1.2; }
 .head p { color: var(--ink-2); font-size: 14px; margin-top: 4px; }
