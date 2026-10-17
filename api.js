@@ -139,6 +139,16 @@
       return true;
     },
     deleteRecurring: function (p) { admin(); rec = rec.filter(function (x) { return x.id !== p.id; }); return true; },
+    eofficeImport: function (p) {
+      admin();
+      var sum = { create: 0, update: 0, same: 0, review: 0, skip: 0 };
+      var results = (p.items || []).map(function (it, i) {
+        var a = !it.due ? 'skip' : (!it.main ? 'review' : (i % 3 === 1 ? 'update' : 'create'));
+        sum[a]++;
+        return { i: i, doc_no: it.doc_no, title: it.title, action: a, main: it.main, mainName: it.main, coop: (it.coop || []).join('; '), due: it.due || '', note: a === 'skip' ? 'Lời chỉ đạo không có hạn cụ thể, không đưa vào theo dõi.' : (a === 'update' ? 'Hạn: 20/10/2026 → ' + it.due : ''), applied: !!p.apply };
+      });
+      return { applied: !!p.apply, summary: sum, results: results };
+    },
     remove: function (p) { admin(); tasks.splice(tasks.indexOf(find(p.id)), 1); return true; },
     history: function (p) { find(p.id); return clone(updates.filter(function (x) { return x.task_id === p.id; }).reverse()); },
     saveUser: function (p) {

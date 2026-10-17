@@ -277,3 +277,11 @@ input[type=range] { padding: 0; accent-color: var(--cobalt); }
 .two .rows .th { display: none; }
 .two .rows .tr { grid-template-columns: minmax(0, 1.5fr) 112px auto; gap: 6px 14px; align-items: center; padding: 12px 16px 12px 18px; }
 .two .rows .tr > :nth-child(1) { grid-column: 1 / -1; }
+
+/* Nhập từ eOffice */
+.eo-box { background: var(--paper); border: 1px solid var(--line); border-radius: var(--r); padding: 16px 18px; max-width: 900px; }
+.eo-box textarea { font-size: 13px; min-height: 140px; }
+.eoRows .th, .eoRows .tr.eo { grid-template-columns: 34px minmax(0, 3fr) 104px minmax(0, 1.6fr) 100px; gap: 12px; }
+.eoRows .tr.eo { cursor: default; } .eoRows input[type=checkbox] { width: 20px; min-height: 20px; height: 20px; }
+.warnTxt { color: var(--amber); font-weight: 500; }
+@media (max-width: 860px) { .eoRows .tr.eo { grid-template-columns: 34px 1fr auto; } .eoRows .tr.eo > :nth-child(2) { grid-column: 2 / -1; } }

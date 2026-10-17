@@ -35,6 +35,7 @@
     chart: '<path d="M3 3v18h18"/><path d="M7 15l4-4 3 3 5-6"/>',
     sun: '<circle cx="12" cy="12" r="4"/><path d="M12 2v2M12 20v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2 12h2M20 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/>',
     moon: '<path d="M21 12.8A9 9 0 1 1 11.2 3a7 7 0 0 0 9.8 9.8z"/>',
+    inbox: '<path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.5 5h13L22 12v6a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-6z"/>',
     repeat: '<path d="M17 2l4 4-4 4"/><path d="M3 11V9a3 3 0 0 1 3-3h15M7 22l-4-4 4-4"/><path d="M21 13v2a3 3 0 0 1-3 3H3"/>'
   };
   function ic(n) { return '<svg class="ic" viewBox="0 0 24 24" aria-hidden="true">' + IC[n] + '</svg>'; }
@@ -110,7 +111,7 @@
   var TITLES = { dash: 'Tổng quan', all: 'Tất cả công việc', kan: 'Bảng Kanban', mine: 'Việc của tôi', users: 'Nhân sự' };
   function tabs() {
     return S.me.isAdmin
-      ? [['dash', 'Tổng quan', 'dash'], ['all', 'Tất cả việc', 'list'], ['kan', 'Kanban', 'kan'], ['report', 'Thống kê', 'chart'], ['mine', 'Việc của tôi', 'mine'], ['users', 'Nhân sự', 'users'], ['rec', 'Việc lặp', 'repeat']]
+      ? [['dash', 'Tổng quan', 'dash'], ['all', 'Tất cả việc', 'list'], ['kan', 'Kanban', 'kan'], ['report', 'Thống kê', 'chart'], ['mine', 'Việc của tôi', 'mine'], ['users', 'Nhân sự', 'users'], ['rec', 'Việc lặp', 'repeat'], ['eoffice', 'Nhập từ eOffice', 'inbox']]
       : [['mine', 'Việc của tôi', 'mine']];
   }
   function render() {
@@ -124,10 +125,10 @@
       '<button id="thm" aria-label="Đổi giao diện sáng hoặc tối" title="Sáng / tối">' + ic(theme === 'dark' ? 'sun' : 'moon') + '</button>' +
       '<button id="out" aria-label="Đăng xuất" title="Đăng xuất">' + ic('out') + '</button></div></aside>' +
       '<main class="main" id="main"></main></div>' +
-      (t.length > 1 ? '<nav class="tabbar" aria-label="Chính">' + t.filter(function (x) { return x[0] !== 'users' && x[0] !== 'rec' && x[0] !== 'kan'; }).map(function (x) { return '<button data-v="' + x[0] + '"' + (S.view === x[0] ? ' aria-current="page"' : '') + '>' + ic(x[2]) + '<span>' + x[1] + '</span></button>'; }).join('') + '</nav>' : '');
+      (t.length > 1 ? '<nav class="tabbar" aria-label="Chính">' + t.filter(function (x) { return x[0] !== 'users' && x[0] !== 'rec' && x[0] !== 'kan' && x[0] !== 'eoffice'; }).map(function (x) { return '<button data-v="' + x[0] + '"' + (S.view === x[0] ? ' aria-current="page"' : '') + '>' + ic(x[2]) + '<span>' + x[1] + '</span></button>'; }).join('') + '</nav>' : '');
     document.querySelectorAll('[data-v]').forEach(function (b) { b.onclick = function () { S.view = b.dataset.v; render(); window.scrollTo(0, 0); }; });
     $('out').onclick = logout; $('thm').onclick = toggleTheme;
-    var v = { dash: vDash, all: vAll, kan: vKan, report: vReport, mine: vMine, users: vUsers, rec: vRec }[S.view];
+    var v = { dash: vDash, all: vAll, kan: vKan, report: vReport, mine: vMine, users: vUsers, rec: vRec, eoffice: vEoffice }[S.view];
     v($('main'));
   }
   function head(title, sub, withNew) {
@@ -582,6 +583,52 @@
     var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'bao-cao-' + today() + '.csv';
     document.body.appendChild(a); a.click(); a.remove(); setTimeout(function () { URL.revokeObjectURL(a.href); }, 2000);
     toast('Đã tải báo cáo CSV, mở được bằng Excel');
+  }
+
+  // ---------- Nhập từ eOffice ----------
+  var EO_ACT = { create: ['Thêm mới', 'good'], update: ['Cập nhật', 'doing'], same: ['Đã khớp', 'new'], review: ['Cần xem lại', 'review'], skip: ['Bỏ qua', 'pending'] };
+  function vEoffice(m) {
+    m.innerHTML = head('Nhập từ eOffice', 'Dán danh sách việc do Claude đọc từ eOffice, xem trước rồi mới áp dụng', false) +
+      '<div class="eo-box"><label class="f" for="eoText" style="margin-top:0">Danh sách việc (định dạng JSON)</label><textarea id="eoText" rows="8" placeholder="Dán nội dung Claude gửi vào đây, hoặc chọn tệp .json"></textarea>' +
+      '<div class="row" style="margin:10px 0 0;gap:10px"><input id="eoFile" type="file" accept=".json,application/json" style="max-width:260px"><button class="btn primary" id="eoPrev">Xem trước</button></div>' +
+      '<p class="note2">Quy tắc: lấy lời chỉ đạo mới nhất của trưởng phòng; không có hạn cụ thể thì bỏ qua; cùng số văn bản đã có thì cập nhật người phụ trách, hạn, phối hợp.</p></div><div id="eoOut"></div>';
+    afterHead();
+    $('eoFile').onchange = function () { var f = this.files[0]; if (!f) return; var rd = new FileReader(); rd.onload = function () { $('eoText').value = String(rd.result); }; rd.readAsText(f, 'utf-8'); };
+    $('eoPrev').onclick = function () { eoRun(false, this); };
+  }
+  function eoItems() {
+    var txt = $('eoText').value.trim(); if (!txt) throw new Error('Chưa có nội dung. Hãy dán danh sách việc.');
+    var d; try { d = JSON.parse(txt); } catch (e) { throw new Error('Nội dung không đúng định dạng JSON: ' + e.message); }
+    if (d && !Array.isArray(d) && Array.isArray(d.items)) d = d.items;
+    if (!Array.isArray(d)) throw new Error('Cần một danh sách các việc.');
+    return d;
+  }
+  var eoState = null;
+  function eoRun(apply, btn) {
+    var items;
+    try { items = eoItems(); } catch (e) { toast(e.message, true); return; }
+    if (apply) items = items.map(function (it, i) { var cb = document.querySelector('[data-eo="' + i + '"]'); return Object.assign({}, it, { selected: cb ? cb.checked : false }); });
+    if (btn) btn.disabled = true;
+    Api.call('eofficeImport', { items: items, apply: apply }).then(function (r) {
+      if (btn) btn.disabled = false;
+      if (apply) { toast('Đã áp dụng: thêm ' + r.results.filter(function (x) { return x.applied && x.action === 'create'; }).length + ', cập nhật ' + r.results.filter(function (x) { return x.applied && x.action === 'update'; }).length); refresh().then(function () { S.view = 'eoffice'; render(); }); return; }
+      eoState = r; eoShow(r);
+    }).catch(function (e) { if (btn) btn.disabled = false; toast(e.message, true); });
+  }
+  function eoShow(r) {
+    var s = r.summary, ok = r.results.filter(function (x) { return x.action === 'create' || x.action === 'update'; }).length;
+    var rows = r.results.map(function (x) {
+      var a = EO_ACT[x.action], can = x.action === 'create' || x.action === 'update';
+      return '<div class="tr nb eo"><div>' + (can ? '<input type="checkbox" data-eo="' + x.i + '" checked aria-label="Chọn việc này">' : '') + '</div>' +
+        '<div><div class="t">' + esc(x.title || '(không có trích yếu)') + '</div><div class="sub">' + esc(x.doc_no) + '</div>' + (x.note ? '<div class="sub' + (x.action === 'review' ? ' warnTxt' : '') + '">' + esc(x.note) + '</div>' : '') + '</div>' +
+        '<div><span class="chip s-' + a[1].replace('good', 'done') + '">' + a[0] + '</span></div>' +
+        '<div data-l="Phụ trách">' + esc(x.mainName || x.main || '—') + (x.coop ? '<div class="sub">Phối hợp: ' + esc(x.coop) + '</div>' : '') + '</div>' +
+        '<div data-l="Hạn">' + (x.due ? fmtDate(x.due) : '—') + '</div></div>';
+    }).join('');
+    $('eoOut').innerHTML = '<div class="kpis" style="margin:18px 0 12px"><div class="kpi ok"><b>' + s.create + '</b><span>Thêm mới</span></div><div class="kpi"><b>' + s.update + '</b><span>Cập nhật</span></div><div class="kpi"><b>' + s.same + '</b><span>Đã khớp</span></div><div class="kpi wait"><b>' + s.review + '</b><span>Cần xem lại</span></div><div class="kpi"><b>' + s.skip + '</b><span>Bỏ qua</span></div></div>' +
+      '<div class="rows eoRows"><div class="th"><span></span><span>Văn bản</span><span>Xử lý</span><span>Người phụ trách</span><span>Hạn</span></div>' + rows + '</div>' +
+      '<div class="actions"><button class="btn primary" id="eoApply"' + (ok ? '' : ' disabled') + '>Áp dụng các việc đã chọn</button><span class="note2" style="margin:0">Việc mới và việc cập nhật cũng được ghi vào sổ gốc; nhóm Telegram nhận thông báo giao việc.</span></div>';
+    $('eoApply').onclick = function () { eoRun(true, this); };
   }
 
   // ---------- Việc lặp định kỳ ----------
