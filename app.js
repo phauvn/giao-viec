@@ -91,7 +91,7 @@
     return Api.call('bootstrap').then(function (d) {
       S.me = d.me; S.users = d.users; S.tasks = d.tasks; S.statuses = d.statuses; S.priorities = d.priorities;
       if (!S.ready) S.view = S.me.isAdmin ? 'dash' : 'mine';
-      S.ready = true; render();
+      S.ready = true; render(); eoHandshake();
     }).catch(function (e) { e.auth ? loginView(e.message) : loginView(e.message); });
   }
   function refresh() {
@@ -586,15 +586,28 @@
   }
 
   // ---------- Nhập từ eOffice ----------
-  var EO_ACT = { create: ['Thêm mới', 'good'], update: ['Cập nhật', 'doing'], same: ['Đã khớp', 'new'], review: ['Cần xem lại', 'review'], skip: ['Bỏ qua', 'pending'] };
+  var EO_ACT = { create: ['Thêm mới', 'done'], update: ['Cập nhật', 'doing'], same: ['Đã khớp', 'new'], review: ['Cần xem lại', 'review'], skip: ['Bỏ qua', 'pending'] };
+  var EO_ORIGIN = 'https://eoffice.vnpt.vn';
+  var eoState = null, eoFinal = null, eoMeta = null, eoPending = null;
+  var EO_BOOKMARKLET = "javascript:(function(){var s=document.createElement('script');s.src='https://phauvn.github.io/giao-viec/eoffice-lay-viec.js?v='+Date.now();document.body.appendChild(s);})();";
+  function eoAutoOn() { var c = $('eoAuto'); return c ? c.checked : true; }
+
   function vEoffice(m) {
-    m.innerHTML = head('Nhập từ eOffice', 'Dán danh sách việc do Claude đọc từ eOffice, xem trước rồi mới áp dụng', false) +
-      '<div class="eo-box"><label class="f" for="eoText" style="margin-top:0">Danh sách việc (định dạng JSON)</label><textarea id="eoText" rows="8" placeholder="Dán nội dung Claude gửi vào đây, hoặc chọn tệp .json"></textarea>' +
+    var auto = true; try { auto = localStorage.getItem('gv_eo_auto') !== '0'; } catch (e) { /* ignore */ }
+    m.innerHTML = head('Nhập từ eOffice', 'Lấy việc bạn đã giao trong eOffice, xem trước rồi áp dụng', false) +
+      '<div class="eo-box"><b>Cách lấy tự động</b><ol class="eo-steps"><li>Kéo nút này lên thanh dấu trang của trình duyệt (làm một lần): <a class="eo-bm" id="eoBm" href="#">Lấy việc từ eOffice</a></li>' +
+      '<li>Đăng nhập eOffice, mở <b>Văn bản đến → VB đến đã xử lý</b>, bấm nút dấu trang vừa tạo, chọn số ngày rồi <b>Bắt đầu</b>. Giữ thẻ eOffice đang mở (khoảng 10–15 phút cho 7 ngày).</li>' +
+      '<li>Khi xong, bấm <b>Chuyển sang web giao việc</b>: danh sách tự hiện ở đây.</li></ol>' +
+      '<label class="eo-auto"><input type="checkbox" id="eoAuto"' + (auto ? ' checked' : '') + '> Tự áp dụng các việc có người phụ trách và hạn cụ thể khi nhận từ eOffice</label></div>' +
+      '<div class="eo-box" style="margin-top:12px"><label class="f" for="eoText" style="margin-top:0">Hoặc dán danh sách việc (định dạng JSON)</label><textarea id="eoText" rows="5" placeholder="Dán nội dung vào đây, hoặc chọn tệp .json"></textarea>' +
       '<div class="row" style="margin:10px 0 0;gap:10px"><input id="eoFile" type="file" accept=".json,application/json" style="max-width:260px"><button class="btn primary" id="eoPrev">Xem trước</button></div>' +
       '<p class="note2">Quy tắc: lấy lời chỉ đạo mới nhất của trưởng phòng; không có hạn cụ thể thì bỏ qua; cùng số văn bản đã có thì cập nhật người phụ trách, hạn, phối hợp.</p></div><div id="eoOut"></div>';
     afterHead();
+    var bm = $('eoBm'); bm.setAttribute('href', EO_BOOKMARKLET); bm.onclick = function (e) { e.preventDefault(); toast('Hãy kéo nút này lên thanh dấu trang, không bấm tại đây.'); };
+    $('eoAuto').onchange = function () { try { localStorage.setItem('gv_eo_auto', this.checked ? '1' : '0'); } catch (e) { /* ignore */ } };
     $('eoFile').onchange = function () { var f = this.files[0]; if (!f) return; var rd = new FileReader(); rd.onload = function () { $('eoText').value = String(rd.result); }; rd.readAsText(f, 'utf-8'); };
     $('eoPrev').onclick = function () { eoRun(false, this); };
+    if (eoFinal) eoShow(eoFinal, true);
   }
   function eoItems() {
     var txt = $('eoText').value.trim(); if (!txt) throw new Error('Chưa có nội dung. Hãy dán danh sách việc.');
@@ -603,32 +616,59 @@
     if (!Array.isArray(d)) throw new Error('Cần một danh sách các việc.');
     return d;
   }
-  var eoState = null;
-  function eoRun(apply, btn) {
+  function eoRun(apply, btn, auto) {
     var items;
     try { items = eoItems(); } catch (e) { toast(e.message, true); return; }
     if (apply) items = items.map(function (it, i) { var cb = document.querySelector('[data-eo="' + i + '"]'); return Object.assign({}, it, { selected: cb ? cb.checked : false }); });
     if (btn) btn.disabled = true;
     Api.call('eofficeImport', { items: items, apply: apply }).then(function (r) {
       if (btn) btn.disabled = false;
-      if (apply) { toast('Đã áp dụng: thêm ' + r.results.filter(function (x) { return x.applied && x.action === 'create'; }).length + ', cập nhật ' + r.results.filter(function (x) { return x.applied && x.action === 'update'; }).length); refresh().then(function () { S.view = 'eoffice'; render(); }); return; }
-      eoState = r; eoShow(r);
+      if (apply) {
+        var c = r.results.filter(function (x) { return x.applied && x.action === 'create'; }).length, u = r.results.filter(function (x) { return x.applied && x.action === 'update'; }).length;
+        toast('Đã áp dụng: thêm ' + c + ', cập nhật ' + u);
+        eoFinal = r; refresh().then(function () { S.view = 'eoffice'; render(); });
+        return;
+      }
+      eoFinal = null; eoState = r; eoShow(r, false);
+      if (auto && eoAutoOn() && r.results.some(function (x) { return x.action === 'create' || x.action === 'update'; })) eoRun(true);
     }).catch(function (e) { if (btn) btn.disabled = false; toast(e.message, true); });
   }
-  function eoShow(r) {
+  function eoShow(r, final) {
     var s = r.summary, ok = r.results.filter(function (x) { return x.action === 'create' || x.action === 'update'; }).length;
     var rows = r.results.map(function (x) {
-      var a = EO_ACT[x.action], can = x.action === 'create' || x.action === 'update';
+      var a = EO_ACT[x.action], can = !final && (x.action === 'create' || x.action === 'update');
+      var label = final && x.applied ? (x.action === 'create' ? 'Đã thêm mới' : 'Đã cập nhật') : a[0];
       return '<div class="tr nb eo"><div>' + (can ? '<input type="checkbox" data-eo="' + x.i + '" checked aria-label="Chọn việc này">' : '') + '</div>' +
         '<div><div class="t">' + esc(x.title || '(không có trích yếu)') + '</div><div class="sub">' + esc(x.doc_no) + '</div>' + (x.note ? '<div class="sub' + (x.action === 'review' ? ' warnTxt' : '') + '">' + esc(x.note) + '</div>' : '') + '</div>' +
-        '<div><span class="chip s-' + a[1].replace('good', 'done') + '">' + a[0] + '</span></div>' +
+        '<div><span class="chip s-' + a[1] + '">' + label + '</span></div>' +
         '<div data-l="Phụ trách">' + esc(x.mainName || x.main || '—') + (x.coop ? '<div class="sub">Phối hợp: ' + esc(x.coop) + '</div>' : '') + '</div>' +
         '<div data-l="Hạn">' + (x.due ? fmtDate(x.due) : '—') + '</div></div>';
     }).join('');
-    $('eoOut').innerHTML = '<div class="kpis" style="margin:18px 0 12px"><div class="kpi ok"><b>' + s.create + '</b><span>Thêm mới</span></div><div class="kpi"><b>' + s.update + '</b><span>Cập nhật</span></div><div class="kpi"><b>' + s.same + '</b><span>Đã khớp</span></div><div class="kpi wait"><b>' + s.review + '</b><span>Cần xem lại</span></div><div class="kpi"><b>' + s.skip + '</b><span>Bỏ qua</span></div></div>' +
+    var meta = eoMeta ? '<p class="note2" style="margin:14px 0 0">Nguồn eOffice (' + esc(eoMeta.at || '') + '): đã đọc ' + esc(eoMeta.scanned) + ' văn bản trong ' + esc(eoMeta.days) + ' ngày; ' + esc(eoMeta.noDue) + ' văn bản không ghi hạn cụ thể nên bỏ qua.</p>' : '';
+    $('eoOut').innerHTML = meta + '<h2 class="h2">' + (final ? 'Kết quả đã áp dụng' : 'Xem trước') + '</h2>' +
+      '<div class="kpis" style="margin:0 0 12px"><div class="kpi ok"><b>' + s.create + '</b><span>Thêm mới</span></div><div class="kpi"><b>' + s.update + '</b><span>Cập nhật</span></div><div class="kpi"><b>' + s.same + '</b><span>Đã khớp</span></div><div class="kpi wait"><b>' + s.review + '</b><span>Cần xem lại</span></div><div class="kpi"><b>' + s.skip + '</b><span>Bỏ qua</span></div></div>' +
       '<div class="rows eoRows"><div class="th"><span></span><span>Văn bản</span><span>Xử lý</span><span>Người phụ trách</span><span>Hạn</span></div>' + rows + '</div>' +
-      '<div class="actions"><button class="btn primary" id="eoApply"' + (ok ? '' : ' disabled') + '>Áp dụng các việc đã chọn</button><span class="note2" style="margin:0">Việc mới và việc cập nhật cũng được ghi vào sổ gốc; nhóm Telegram nhận thông báo giao việc.</span></div>';
-    $('eoApply').onclick = function () { eoRun(true, this); };
+      (final ? '<p class="note2">Việc mới và việc cập nhật đã được ghi vào sổ gốc; nhóm Telegram nhận thông báo giao việc.</p>' :
+        '<div class="actions"><button class="btn primary" id="eoApply"' + (ok ? '' : ' disabled') + '>Áp dụng các việc đã chọn</button><span class="note2" style="margin:0">Việc mới và việc cập nhật cũng được ghi vào sổ gốc; nhóm Telegram nhận thông báo giao việc.</span></div>');
+    if (!final && $('eoApply')) $('eoApply').onclick = function () { eoRun(true, this); };
+  }
+  function eoReceive(items, meta) {
+    S.view = 'eoffice'; eoFinal = null; eoMeta = meta || null; render();
+    $('eoText').value = JSON.stringify(items, null, 1);
+    toast('Đã nhận ' + items.length + ' việc từ eOffice');
+    eoRun(false, null, true);
+  }
+  window.addEventListener('message', function (e) {
+    if (e.origin !== EO_ORIGIN || !e.data || e.data.type !== 'eoffice-items' || !Array.isArray(e.data.items)) return;
+    if (S.ready && S.me && S.me.isAdmin) eoReceive(e.data.items, e.data.meta); else eoPending = e.data;
+  });
+  function eoHandshake() {
+    if (!S.me || !S.me.isAdmin) return;
+    if (location.hash === '#eoffice' && window.opener) {
+      S.view = 'eoffice'; render();
+      try { window.opener.postMessage({ type: 'giaoviec-ready' }, EO_ORIGIN); } catch (e) { /* ignore */ }
+    }
+    if (eoPending) { var d = eoPending; eoPending = null; eoReceive(d.items, d.meta); }
   }
 
   // ---------- Việc lặp định kỳ ----------
